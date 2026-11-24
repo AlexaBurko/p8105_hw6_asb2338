@@ -1,0 +1,102 @@
+---
+title: "Homework 6"
+author: "Alexa Burko"
+date: "2026-11-23"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyverse)
+library(purrr)
+library(broom)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+set.seed(1236)
+
+```
+
+# Problem 1
+```{r}
+homicide_df =
+  read_csv("data/homicide-data.csv") |>
+  janitor::clean_names() |>
+    mutate(
+    city_state = paste(city, state, sep = ", "),
+    solved = str_detect(disposition, "Closed"),
+    victim_age = as.numeric(victim_age)) |> 
+  filter(victim_race %in% c("Black", "White"),
+         !(city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL"))) 
+  
+homicide_df_clean <- homicide_df %>%
+  mutate(across(where(is.character), ~ iconv(.x, from = "", to = "UTF-8", sub = "")))
+# had to do this so that I could view the dataset
+
+
+```
+
+```{r}
+fit_logistic_balt =
+  homicide_df_clean |> 
+  filter(city_state == "Baltimore, MD") |> 
+  glm(solved ~ victim_age + victim_race + victim_sex, data = _, family = binomial())
+
+
+fit_logistic_balt |>
+  broom::tidy(conf.int = TRUE) |>
+  mutate(
+    OR = exp(estimate),
+    lower_conf = exp(conf.low),
+    upper_conf = exp(conf.high)
+  ) |>
+  filter(term == "victim_sexMale") |>
+  select(term, estimate, OR, lower_conf, upper_conf, p.value) |>
+  knitr::kable(digits = 3)
+```
+
+The odds of a homicide being solved when the victim is male is 0.36 times the odds of a homicide being solved when the victim is female (95% CI: 0.27, 0.47).
+
+```{r}
+
+city_ors <- homicide_df_clean |>
+  mutate(victim_sex = fct_relevel(victim_sex, "Female")) |>
+  nest(data = -city_state) |>
+  mutate(
+    model_fits = map(data, \(df) glm(solved ~ victim_age + victim_race + victim_sex, data = df, family = binomial()))
+  ) |>
+  mutate(
+    results = map(model_fits, \(mod) tidy(mod, conf.int = TRUE, exponentiate = TRUE))
+  ) |>
+  select(city_state, results) |>
+  unnest(results) |>
+  filter(term == "victim_sexMale") |>
+  select(city_state, term, OR = estimate, conf.low, conf.high)
+
+city_ors |>
+  mutate(city_state = fct_reorder(city_state, OR)) |>
+  ggplot(aes(x = OR, y = city_state)) +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), orientation = "y") +
+  geom_point() +
+  labs(
+    x = "Adjusted Odds Ratio (Male vs. Female Victims)",
+    y = "City, State"
+  ) +
+  theme(axis.text.y = element_text(size = 5))
+
+```
+
