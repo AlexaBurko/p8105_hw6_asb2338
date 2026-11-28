@@ -10,6 +10,7 @@ library(dplyr)
 library(tidyverse)
 library(purrr)
 library(broom)
+library(modelr)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -99,6 +100,7 @@ city_ors |>
   theme(axis.text.y = element_text(size = 5))
 
 ```
+
 The city with the highest odds of a homicide being solved when the victim is male compared to when the victim is female is Fresno, CA, with an odds ratio greater than 1. The city with the lowest odds of a homicide being solved when the victim is male compared to when the victim is female is New York, NY, with an odds ratio greater than 1. 
 
 
@@ -165,4 +167,95 @@ weather_bootstrap_estimates |>
   ) +
   theme_minimal()
 ```
+
 The plot of the beta ratios is slightly left skewed, though the central tendency is about -175. The plot of the R-squared values are roughly normally distributed with a mean of about 0.941
+
+# Problem 3
+```{r}
+child_df =
+  read_csv("data/birthweight.csv", na = c("", "NA", ".")) |>
+  janitor::clean_names() |>
+  mutate(
+    babysex = factor(case_match(
+      babysex,
+      1 ~ "Male",
+      2 ~ "Female"
+    )),
+    malform = factor(case_match(
+      malform,
+      0 ~ "Absent",
+      1 ~ "Present"
+    )),
+    frace = factor(case_match(
+      frace,
+      1 ~ "White",
+      2 ~ "Black",
+      3 ~ "Asian",
+      4 ~ "Puerto Rican",
+      8 ~ "Other"
+    )),
+    mrace = factor(case_match(
+      mrace,
+      1 ~ "White",
+      2 ~ "Black",
+      3 ~ "Asian",
+      4 ~ "Puerto Rican",
+      8 ~ "Other"
+    )),
+    parity = as.factor(parity),
+    pnumlbw = as.factor(pnumlbw),
+    pnumsga = as.factor(pnumsga)
+  )
+
+colSums(is.na(child_df))
+# no NAs
+```
+```{r}
+
+proposed_mod = lm(bwt ~ babysex + blength + gaweeks + smoken, data = child_df)
+
+child_df |> 
+  add_predictions(proposed_mod) |> 
+  add_residuals(proposed_mod) |> 
+ggplot(aes(x = pred, y = resid))+
+  geom_point() +
+  labs(
+    title = "Residuals vs. Fitted Values for Proposed Birthweight Model",
+    x = "Fitted Birthweight (grams)",
+    y = "Residual (grams)"
+  ) +
+  theme_minimal()
+
+```
+
+I picked babysex, blength, gaweeks, and smoken as the adjustment variables in my proposed model because I know from the literature that all of these variables are strongly associated with birthweight. 
+
+```{r}
+set.seed(12345)
+
+cv_results <-
+  crossv_mc(child_df, n = 100) |>
+  mutate(
+    proposed_fit = map(train, \(df) lm(bwt ~ babysex + blength + gaweeks + smoken, data = df)),
+    main_fit = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    inter_fit = map(train, \(df) lm(bwt ~ bhead * blength * babysex, data = df)),
+    proposed_rmse = map2_dbl(proposed_fit, test, \(mod, df) rmse(mod, df)),
+    main_rmse = map2_dbl(main_fit, test, \(mod, df) rmse(mod, df)),
+    inter_rmse    = map2_dbl(inter_fit, test, \(mod, df) rmse(mod, df))
+  )
+
+cv_results |>
+  pivot_longer(
+    cols = c(proposed_rmse, main_rmse, inter_rmse),
+    names_to = "model",
+    values_to = "rmse"
+  ) |>
+  group_by(model) |>
+  summarise(
+    mean_rmse = mean(rmse, na.rm = TRUE),
+    sd_rmse = sd(rmse, na.rm = TRUE)
+  ) |>
+  knitr::kable(digits = 3)
+```
+
+This shows that the interaction model has the lowest amount of prediction error of all the models, making the interaction model the best fit for the data. 
