@@ -99,4 +99,70 @@ city_ors |>
   theme(axis.text.y = element_text(size = 5))
 
 ```
+The city with the highest odds of a homicide being solved when the victim is male compared to when the victim is female is Fresno, CA, with an odds ratio greater than 1. The city with the lowest odds of a homicide being solved when the victim is male compared to when the victim is female is New York, NY, with an odds ratio greater than 1. 
 
+
+# Problem 2
+```{r}
+library(p8105.datasets)
+data("weather_df")
+```
+
+```{r}
+weather_bootstrap_df =
+  weather_df |> 
+  modelr::bootstrap(n = 5000) |> 
+  mutate(
+    model_fits = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df)),
+    results = map(model_fits, broom::tidy)
+  )
+```
+
+```{r}
+weather_bootstrap_estimates <- weather_bootstrap_df |>
+  mutate(
+    glance_info = map(model_fits, broom::glance),
+    r_squared = map_dbl(glance_info, "r.squared"),
+    beta_ratio = map_dbl(results, \(tib) {
+      b1 <- tib |> filter(term == "tmin") |> pull(estimate)
+      b2 <- tib |> filter(term == "prcp") |> pull(estimate)
+      b1 / b2
+    })
+  )
+
+weather_bootstrap_quantiles <- weather_bootstrap_estimates |>
+  summarise(
+    r2_q025 = quantile(r_squared, probs = 0.025, na.rm = TRUE),
+    r2_q975 = quantile(r_squared, probs = 0.975, na.rm = TRUE),
+    ratio_q025 = quantile(beta_ratio, probs = 0.025, na.rm = TRUE),
+    ratio_q975 = quantile(beta_ratio, probs = 0.975, na.rm = TRUE)
+  )
+```
+
+```{r}
+
+weather_bootstrap_estimates |>
+  select(.id, r_squared, beta_ratio) |>
+  pivot_longer(
+    cols = c(r_squared, beta_ratio),
+    names_to = "parameter",
+    values_to = "estimate"
+  ) |>
+  mutate(
+    parameter = recode(
+      parameter,
+      r_squared = "R-squared",
+      beta_ratio = "Beta1 / Beta2"
+    )
+  ) |>
+  ggplot(aes(x = estimate)) +
+  geom_histogram(color = "white") +
+  facet_wrap(~ parameter, scales = "free") +
+  labs(
+    title = "Bootstrap Distributions (5,000 Resamples)",
+    x = "Bootstrap Estimate",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+The plot of the beta ratios is slightly left skewed, though the central tendency is about -175. The plot of the R-squared values are roughly normally distributed with a mean of about 0.941
